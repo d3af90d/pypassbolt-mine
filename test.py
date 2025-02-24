@@ -1,6 +1,7 @@
 import time
 
 import passboltapi
+import urllib3
 
 
 def get_my_passwords(passbolt_obj):
@@ -46,13 +47,14 @@ def get_passwords_basic():
 
 
 if __name__ == '__main__':
-    folder_id = "1d932dc0-d0a3-4a44-80c7-4701f84dc307"
-    with passboltapi.PassboltAPI(config_path="config.ini") as passbolt:
-        # required: passbolt.import_public_keys() when the folder has more users.
-        print(passbolt.create_resource(
-            name='Sample Name',
-            username='Sample username',
-            password='password_test',
-            uri='https://www.passbolt_uri.com',
-            folder_id=folder_id
-        ))
+    # Disable warnings about not checking server SSL certificate
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    passbolt_api = passboltapi.PassboltAPI(
+        config_path="config.ini",
+        new_keys=True,
+        ssl_verify=False # anche se ho specificato False, ho dovuto modificare il codice della libreria per non controllare i certificati ssl
+    )
+    passbolt_api.get_server_public_key()
+    passbolt_api.authenticate()
+    passbolt_api.list_users()

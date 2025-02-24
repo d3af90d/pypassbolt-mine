@@ -1,8 +1,12 @@
 import configparser
+from http.cookiejar import LWPCookieJar
 import json
 import logging
 import urllib.parse
 from typing import List, Mapping, Optional, Tuple, Union
+
+import uuid
+import datetime
 
 import gnupg
 import requests
@@ -35,14 +39,11 @@ from passboltapi.schema import (
 LOGIN_URL = "/auth/login.json"
 VERIFY_URL = "/auth/verify.json"
 
-
 class PassboltValidationError(Exception):
     pass
 
-
 class PassboltError(Exception):
     pass
-
 
 class APIClient:
     def __init__(
@@ -54,33 +55,50 @@ class APIClient:
         ssl_verify: bool = True,
         cert_auth: bool = False
     ):
-        """
-        :param config: Config as a dictionary
-        :param config_path: Path to the config file.
-        :param delete_old_keys: Set true if old keys need to be deleted
-        """
-        self.ssl_verify = ssl_verify
-        self.config = config
-        self.cert_auth = cert_auth
-        self.cert = None
+        self.old_ssl_verify = ssl_verify
+        self.old_config = config
+        self.old_cert_auth = cert_auth
+        self.old_cert = None
         if config_path:
-            self.config = configparser.ConfigParser()
-            self.config.read_file(open(config_path))
-        self.requests_session = requests.Session()
+            self.old_config = configparser.ConfigParser()
+            self.old_config.read_file(open(config_path))
+        self.old_http_session = requests.Session()
 
-        if not self.config:
+        if not self.old_config:
             raise ValueError("Missing config. Provide config as dictionary or path to configuration file.")
-        if not self.config["PASSBOLT"]["SERVER"]:
+        if not self.old_config["PASSBOLT"]["SERVER"]:
             raise ValueError("Missing value for SERVER in config.ini")
 
-        self.server_url = self.config["PASSBOLT"]["SERVER"].rstrip("/")
+        # ----------------------------------
+        # new stuff
+        # ----------------------------------
+        self.http_session = requests.Session()
+        proxies = {
+            "http":"http://127.0.0.1:8080",
+            "https":"http://127.0.0.1:8080"
+        }
+        self.http_session.proxies.update(proxies)
+        self.http_session.verify = False
 
-        if self.cert_auth:
-            if not (self.config["PASSBOLT"]["SERVER_CERT_AUTH_CRT"] and self.config["PASSBOLT"]["SERVER_CERT_AUTH_KEY"]):
+        self.jwt_auth_token = None
+        self.jwt_refresh_token = None
+        self.server_fingerprint = None
+        self.gpg_passphrase = self.old_config["PASSBOLT"]["PASSPHRASE"]
+
+
+        # ----------------------------------
+        # old
+        # ----------------------------------
+
+        self.server_url = self.old_config["PASSBOLT"]["SERVER"].rstrip("/")
+
+        if self.old_cert_auth:
+            if not (self.old_config["PASSBOLT"]["SERVER_CERT_AUTH_CRT"] and self.old_config["PASSBOLT"]["SERVER_CERT_AUTH_KEY"]):
                 raise ValueError("Missing certificate and key in config.ini")
-            self.cert = (self.config["PASSBOLT"]["SERVER_CERT_AUTH_CRT"], self.config["PASSBOLT"]["SERVER_CERT_AUTH_KEY"])
+            self.old_cert = (self.old_config["PASSBOLT"]["SERVER_CERT_AUTH_CRT"], self.old_config["PASSBOLT"]["SERVER_CERT_AUTH_KEY"])
         
-        self.user_fingerprint = self.config["PASSBOLT"]["USER_FINGERPRINT"].upper().replace(" ", "")
+        self.user_fingerprint = self.old_config["PASSBOLT"]["USER_FINGERPRINT"].upper().replace(" ", "")
+
         self.gpg = gnupg.GPG()
         if delete_old_keys:
             self._delete_old_keys()
@@ -112,24 +130,133 @@ class APIClient:
             self.gpg.delete_keys(i["fingerprint"], False)
 
     def _import_gpg_keys(self):
-        if not self.config["PASSBOLT"]["USER_PUBLIC_KEY_FILE"]:
+        if not self.old_config["PASSBOLT"]["USER_PUBLIC_KEY_FILE"]:
             raise ValueError("Missing value for USER_PUBLIC_KEY_FILE in config.ini")
-        if not self.config["PASSBOLT"]["USER_PRIVATE_KEY_FILE"]:
+        if not self.old_config["PASSBOLT"]["USER_PRIVATE_KEY_FILE"]:
             raise ValueError("Missing value for USER_PRIVATE_KEY_FILE in config.ini")
-        self.gpg.import_keys(open(self.config["PASSBOLT"]["USER_PUBLIC_KEY_FILE"]).read())
-        self.gpg.import_keys(open(self.config["PASSBOLT"]["USER_PRIVATE_KEY_FILE"]).read())
+        self.gpg.import_keys(open(self.old_config["PASSBOLT"]["USER_PUBLIC_KEY_FILE"]).read())
+        self.gpg.import_keys(open(self.old_config["PASSBOLT"]["USER_PRIVATE_KEY_FILE"]).read())
+
+
+
+
+    def get_server_public_key(self):
+        r = self.http_session.get(self.server_url + VERIFY_URL)
+        if r.status_code != 200: # TODO raise exception (http exception?)
+            print('Request Error'); exit(1)
+
+        body = r.json()
+        if body['header']['status'] != 'success': # TODO Raise passbolt exception
+            print('error response'); exit(1)
+
+        server_fingerprint = body['body']['fingerprint']
+        server_keydata = body['body']['keydata']
+
+        self.server_fingerprint = server_fingerprint
+
+        # TODO: check if server keys are already present?
+        self.gpg.import_keys(server_keydata)
+        self.gpg.trust_keys(server_fingerprint, "TRUST_FULLY")
+            
+        return server_keydata
+
+
+    def authenticate(self):
+        # todo: override requests Session class to implement jwt token refreshing
+        verify_token = str(uuid.uuid4())
+
+        login_challenge = {
+            "version":"1.0.0",
+            "domain": "https://10.221.221.105:27443",
+            "verify_token" : verify_token,
+            "verify_token_expiry" : str((datetime.datetime.now() + datetime.timedelta(minutes=2)).timestamp())
+        }
+
+        enc_login_challenge = self.gpg.encrypt(
+            json.dumps(login_challenge),
+            self.server_fingerprint,
+            sign=self.gpg_fingerprint,
+            passphrase=self.gpg_passphrase,
+            always_trust=True,
+        )
+
+        login_payload = {
+            'user_id': 'fe0ba7d4-dea7-43ac-ac15-c3d35da3231a',
+            'challenge': str(enc_login_challenge)
+        }
+
+        login_response = self.http_session.post(self.server_url + '/auth/jwt/login.json', json=login_payload)
+        self._check_response(login_response)
+
+        enc_challenge = login_response.json()['body']['challenge']
+        decrypted_challenge = self.gpg.decrypt(enc_challenge, passphrase=self.gpg_passphrase)
+        dec_challenge_json = json.loads(str(decrypted_challenge))
+
+        if verify_token != dec_challenge_json['verify_token']: # todo: check and refactor
+            print('verify token mismath'); exit(1)
+
+        self.jwt_auth_token = dec_challenge_json['access_token']
+        self.jwt_refresh_token = dec_challenge_json['refresh_token']
+
+        self.http_session.headers.update({
+            'Authorization': self.jwt_auth_token
+        })
+
+    def list_users(
+        self, 
+        resource_or_folder_id: Union[None, PassboltResourceIdType, PassboltFolderIdType] = None,
+    ) -> List[PassboltUserTuple]:
+        r = self.http_session.get(f"{self.server_url}/users.json")
+        self._check_response(r)
+        users = constructor(
+            PassboltUserTuple,
+            subconstructors={"gpgkey": constructor(PassboltOpenPgpKeyTuple)},
+        )(r.json()['body'])
+        
+        # TODO: check if this line is needed
+        if not isinstance(type(users), list): users = [users]           
+        __import__('pprint').pprint(users)
+
+        return users
+
+
+        # if resource_or_folder_id is None:
+        #     params = {}
+        # else:
+        #     params = {"filter[has-access]": resource_or_folder_id, "contain[user]": 1}
+        # params["contain[permission]"] = True
+        # response = self.get(f"/users.json", params=params)
+        # assert "body" in response.keys(), f"Key 'body' not found in response keys: {response.keys()}"
+        # response = response["body"]
+        # users = constructor(
+        #     PassboltUserTuple,
+        #     subconstructors={
+        #         "gpgkey": constructor(PassboltOpenPgpKeyTuple),
+        #     },
+        # )(response)
+        # if isinstance(users, PassboltUserTuple) and force_list:
+        #     return [users]
+        # return users
+
+    def _check_response(self, response):
+        print('check response method')
+        return
+
+
+
 
     def _login(self):
-        r = self.requests_session.post(self.server_url + LOGIN_URL, json={"gpg_auth": {"keyid": self.gpg_fingerprint}}, verify=self.ssl_verify, cert=self.cert) # None is the default value in requests
+        r = self.old_http_session.post(self.server_url + LOGIN_URL, json={"gpg_auth": {"keyid": self.gpg_fingerprint}}, verify=self.old_ssl_verify, cert=self.old_cert) # None is the default value in requests
         encrypted_token = r.headers["X-GPGAuth-User-Auth-Token"]
         encrypted_token = urllib.parse.unquote(encrypted_token)
         encrypted_token = encrypted_token.replace(r"\+", " ")
         token = self.decrypt(encrypted_token)
-        self.requests_session.post(
+        self.old_http_session.post(
             self.server_url + LOGIN_URL,
             json={
                 "gpg_auth": {"keyid": self.gpg_fingerprint, "user_token_result": token},
             },
+            verify=False,
         )
         try:
             self._get_csrf_token()
@@ -141,21 +268,21 @@ class APIClient:
             ):
                 logging.error(r.text)
                 raise e
-            if not self.config["PASSBOLT"]["OTP"]:
+            if not self.old_config["PASSBOLT"]["OTP"]:
                 raise ValueError("Missing value for OTP in config.ini")
-            self.post("/mfa/verify/totp.json", {"totp": self.config["PASSBOLT"]["OTP"]})
+            self.post("/mfa/verify/totp.json", {"totp": self.old_config["PASSBOLT"]["OTP"]})
 
     def _get_csrf_token(self):
         """Fetches the X-CSRF-Token header for future requests"""
-        r = self.requests_session.get(self.server_url + "/users/me.json")
+        r = self.old_http_session.get(self.server_url + "/users/me.json", verify=False)
         r.raise_for_status()
 
     def encrypt(self, text, recipients=None):
         return str(self.gpg.encrypt(data=text, recipients=recipients or self.gpg_fingerprint, always_trust=True))
 
     def decrypt(self, text):
-        if "PASSPHRASE" in self.config["PASSBOLT"]:
-            passphrase = str(self.config["PASSBOLT"]["PASSPHRASE"])
+        if "PASSPHRASE" in self.old_config["PASSBOLT"]:
+            passphrase = str(self.old_config["PASSBOLT"]["PASSPHRASE"])
         else:
             passphrase = None
 
@@ -164,17 +291,14 @@ class APIClient:
 
     def get_headers(self):
         return {
-            "X-CSRF-Token": self.requests_session.cookies["csrfToken"]
-            if "csrfToken" in self.requests_session.cookies
+            "X-CSRF-Token": self.old_http_session.cookies["csrfToken"]
+            if "csrfToken" in self.old_http_session.cookies
             else ""
         }
 
-    def get_server_public_key(self):
-        r = self.requests_session.get(self.server_url + VERIFY_URL)
-        return r.json()["body"]["fingerprint"], r.json()["body"]["keydata"]
 
     def delete(self, url):
-        r = self.requests_session.delete(self.server_url + url, headers=self.get_headers())
+        r = self.old_http_session.delete(self.server_url + url, headers=self.get_headers())
         try:
             r.raise_for_status()
             return r.json()
@@ -183,7 +307,7 @@ class APIClient:
             raise e
 
     def get(self, url, return_response_object=False, **kwargs):
-        r = self.requests_session.get(self.server_url + url, headers=self.get_headers(), **kwargs)
+        r = self.old_http_session.get(self.server_url + url, headers=self.get_headers(), **kwargs)
         try:
             r.raise_for_status()
             if return_response_object:
@@ -194,7 +318,7 @@ class APIClient:
             raise e
 
     def put(self, url, data, return_response_object=False, **kwargs):
-        r = self.requests_session.put(self.server_url + url, json=data, headers=self.get_headers(), **kwargs)
+        r = self.old_http_session.put(self.server_url + url, json=data, headers=self.get_headers(), **kwargs)
         try:
             r.raise_for_status()
             if return_response_object:
@@ -205,7 +329,7 @@ class APIClient:
             raise e
 
     def post(self, url, data, return_response_object=False, **kwargs):
-        r = self.requests_session.post(self.server_url + url, json=data, headers=self.get_headers(), **kwargs)
+        r = self.old_http_session.post(self.server_url + url, json=data, headers=self.get_headers(), **kwargs)
         try:
             r.raise_for_status()
             if return_response_object:
@@ -216,14 +340,10 @@ class APIClient:
             raise e
 
     def close_session(self):
-        self.requests_session.close()
+        self.old_http_session.close()
 
 
 class PassboltAPI(APIClient):
-    """Adding a convenience method for getting resources.
-
-    Design Principle: All passbolt aware public methods must accept or output one of PassboltTupleTypes"""
-
     def _json_load_secret(self, secret: PassboltSecretTuple) -> Tuple[str, Optional[str]]:
         try:
             secret_dict = json.loads(self.decrypt(secret.data))
@@ -309,9 +429,9 @@ class PassboltAPI(APIClient):
                     user_ids.add(group_user["user_id"])
             elif perm.aro == "User":
                 user_ids.add(perm.aro_foreign_key)
-        return [user for user in self.list_users() if user.id in user_ids]
+        return [user for user in self.list_users_old() if user.id in user_ids]
 
-    def list_users(
+    def list_users_old(
         self, resource_or_folder_id: Union[None, PassboltResourceIdType, PassboltFolderIdType] = None, force_list=True
     ) -> List[PassboltUserTuple]:
         if resource_or_folder_id is None:
@@ -334,7 +454,7 @@ class PassboltAPI(APIClient):
 
     def import_public_keys(self, trustlevel="TRUST_FULLY"):
         # get all users
-        users = self.list_users()
+        users = self.list_users_old()
         for user in users:
             self.gpg.import_keys(user.gpgkey.armored_key)
             self.gpg.trust_keys(user.gpgkey.fingerprint, trustlevel)
@@ -476,7 +596,7 @@ class PassboltAPI(APIClient):
         if uri is None:
             payload.pop("uri")
 
-        recipients = self.list_users(resource_or_folder_id=resource_id)
+        recipients = self.list_users_old(resource_or_folder_id=resource_id)
         if secret_type == PassboltResourceType.PASSWORD:
             if password is not None:
                 assert isinstance(password, str), f"password has to be a string object -- {password}"
