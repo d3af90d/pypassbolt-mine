@@ -57,6 +57,7 @@ class PassboltPermissionTuple(NamedTuple):
 
 class PassboltOpenPgpKeyTuple(NamedTuple):
     id: PassboltOpenPgpKeyIdType
+    user_id: PassboltUserIdType
     armored_key: str
     created: PassboltDateTimeType
     key_created: PassboltDateTimeType
@@ -122,6 +123,7 @@ class PassboltFolderTuple(NamedTuple):
     folder_parent_id: PassboltFolderIdType
     personal: bool
     permissions: List[PassboltPermissionTuple] = []
+    children_resources: List[PassboltResourceTuple] = []
 
 
 class PassboltGroupTuple(NamedTuple):
@@ -146,7 +148,7 @@ AllPassboltTupleTypes = Union[
 ]
 
 
-def constructor(
+def tuple_constructor(
     _namedtuple: AllPassboltTupleTypes,
     renamed_fields: Union[None, dict] = None,
     filter_fields: bool = True,

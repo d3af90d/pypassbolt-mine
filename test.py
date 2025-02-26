@@ -1,60 +1,40 @@
-import time
-
 import passboltapi
 import urllib3
-
-
-def get_my_passwords(passbolt_obj):
-    result = list()
-    for i in passbolt_obj.get(url="/resources.json?api-version=v2")["body"]:
-        result.append({
-            "id": i["id"],
-            "name": i["name"],
-            "username": i["username"],
-            "uri": i["uri"]
-        })
-        print(i)
-    for i in result:
-        resource = passbolt_obj.get(
-            "/secrets/resource/{}.json?api-version=v2".format(i["id"]))
-        i["password"] = passbolt_obj.decrypt(resource["body"]["data"])
-    print(result)
-
-
-def get_passwords_basic():
-    # A simple example to show how to retrieve passwords of a user.
-    # Note the config file is placed in the project directory.
-    passbolt_obj = passboltapi.PassboltAPI(config_path="config.ini")
-    result = list()
-    for i in passbolt_obj.get(url="/resources.json?api-version=v2")["body"]:
-        result.append({
-            "id": i["id"],
-            "name": i["name"],
-            "username": i["username"],
-            "uri": i["uri"]
-        })
-        print(i)
-    for i in result:
-        resource = passbolt_obj.get(
-            "/secrets/resource/{}.json?api-version=v2".format(i["id"]))
-        i["password"] = passbolt_obj.decrypt(resource["body"]["data"])
-    print(result)
-    passbolt_obj.close_session()
-
-    # Or using context managers
-    # with passboltapi.PassboltAPI(config_path="config.ini") as passbolt:
-    #     get passwords....
-
 
 if __name__ == '__main__':
     # Disable warnings about not checking server SSL certificate
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    passbolt_api = passboltapi.PassboltAPI(
-        config_path="config.ini",
-        new_keys=True,
-        ssl_verify=False # anche se ho specificato False, ho dovuto modificare il codice della libreria per non controllare i certificati ssl
-    )
-    passbolt_api.get_server_public_key()
-    passbolt_api.authenticate()
-    passbolt_api.list_users()
+    # passbolt_api_old = passboltapi.PassboltAPIOld(
+    #     config_path="config.ini",
+    #     new_keys=True,
+    #     ssl_verify=False # anche se ho specificato False, ho dovuto modificare il codice della libreria per non controllare i certificati ssl
+    # )
+    # passbolt_api_old.get_server_public_key()
+    # passbolt_api_old.authenticate()
+    # passbolt_api_old.list_users()
+
+    # config = {
+    #     "passbolt": {
+    #         "server": "https://10.221.221.105:27443",
+    #         "server_public_key_file": "/home/user/dev/d3af90d-github/passbolt-api-mine/data/server.pub",
+    #         "user_fingerprint": "0BC8 8428 5147 1ACA 6EFA ABC2 6FB8 4AB4 AB00 6CA9",
+    #     }
+    # }
+    #passbolt_api = passboltapi.PassboltAPI(config=config)
+
+    passbolt_api = passboltapi.PassboltAPI(config_path="config.ini")
+    folders = passbolt_api.get_folders(include_children_resources=True, search_filter='2024')
+    # for f in folders:
+    #     for r in f.children_resources:
+    #         print(r.name)
+
+    #passbolt_api.get_users(is_admin=True, is_active=True)
+
+    resources = passbolt_api.get_resources()
+    passbolt_api.get_aros()
+    # for r in resources:
+    #     print(r.name)
+    #
+    # passbolt_api.get_jwt_rsa_server_info()
+    # __import__('pprint').pprint(resources)

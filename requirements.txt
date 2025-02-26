@@ -1,7 +1,9 @@
 certifi             >= 2019.6.16
 chardet             >= 3.0.4
 charset-normalizer  >= 2.0.8
+cryptography
 idna                >= 2.8
+pyjwt
 python-gnupg        >= 0.4.7
 requests            >= 2.26.0
 typing-extensions   >= 4.0.0
