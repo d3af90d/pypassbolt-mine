@@ -1,30 +1,17 @@
 from enum import Enum
-from typing import List, Mapping, NamedTuple, Optional, Union
+from typing import List, Mapping, NamedTuple, Optional, Union, TypeAlias, Literal
 
-try:
-    from typing import TypeAlias
-except ImportError:
-    from typing_extensions import TypeAlias
-
-try:
-    from typing import Literal
-except ImportError:
-    from typing_extensions import Literal
-
-# User-Defined Structs
-# > Passbolt types
-PassboltFolderIdType: TypeAlias = str
-PassboltResourceIdType: TypeAlias = str
+PassboltFolderIdType      : TypeAlias = str
+PassboltResourceIdType    : TypeAlias = str
 PassboltResourceTypeIdType: TypeAlias = str
-PassboltUserIdType: TypeAlias = str
-PassboltRoleIdType: TypeAlias = str
-PassboltOpenPgpKeyIdType: TypeAlias = str
-PassboltGroupIdType: TypeAlias = str
-PassboltSecretIdType: TypeAlias = str
-PassboltPermissionIdType: TypeAlias = str
+PassboltUserIdType        : TypeAlias = str
+PassboltRoleIdType        : TypeAlias = str
+PassboltOpenPgpKeyIdType  : TypeAlias = str
+PassboltGroupIdType       : TypeAlias = str
+PassboltSecretIdType      : TypeAlias = str
+PassboltPermissionIdType  : TypeAlias = str
 
-# refers to the response from passbolt which is a string representation of datetime
-PassboltDateTimeType: TypeAlias = str
+PassboltDateTimeType       : TypeAlias = str
 PassboltFavoriteDetailsType: TypeAlias = dict
 
 
@@ -34,40 +21,40 @@ class PassboltResourceType(Enum):
 
 
 class PassboltSecretTuple(NamedTuple):
-    id: PassboltSecretIdType
-    user_id: PassboltUserIdType
+    id         : PassboltSecretIdType
+    user_id    : PassboltUserIdType
     resource_id: PassboltResourceIdType
-    data: str
-    created: PassboltDateTimeType
-    modified: PassboltDateTimeType
+    data       : str
+    created    : PassboltDateTimeType
+    modified   : PassboltDateTimeType
 
 
 class PassboltPermissionTuple(NamedTuple):
-    id: PassboltPermissionIdType
-    aco: Literal["User", "Group"]
+    id             : PassboltPermissionIdType
+    aco            : Literal["User", "Group"]
     aco_foreign_key: Union[PassboltUserIdType, PassboltGroupIdType]
-    aro: Literal["Resource", "Folder"]
+    aro            : Literal["Resource", "Folder"]
     aro_foreign_key: Union[PassboltResourceIdType, PassboltFolderIdType]
-    type: int
-    created: PassboltDateTimeType
-    modified: PassboltDateTimeType
-    group: Union[None, "PassboltGroupTuple"] = None
-    user: Union[None, "PassboltUserTuple"] = None
+    type           : int
+    created        : PassboltDateTimeType
+    modified       : PassboltDateTimeType
+    group          : Union[None, "PassboltGroupTuple"] = None
+    user           : Union[None, "PassboltUserTuple"]  = None
 
 
 class PassboltOpenPgpKeyTuple(NamedTuple):
-    id: PassboltOpenPgpKeyIdType
-    user_id: PassboltUserIdType
+    id         : PassboltOpenPgpKeyIdType
+    user_id    : PassboltUserIdType
     armored_key: str
-    created: PassboltDateTimeType
+    created    : PassboltDateTimeType
     key_created: PassboltDateTimeType
-    bits: int
-    deleted: bool
-    modified: PassboltDateTimeType
-    key_id: str
+    bits       : int
+    deleted    : bool
+    modified   : PassboltDateTimeType
+    key_id     : str
     fingerprint: str
-    type: Literal["RSA", "ELG", "DSA", "ECDH", "ECDSA", "EDDSA"]
-    expires: PassboltDateTimeType
+    type       : Literal["RSA", "ELG", "DSA", "ECDH", "ECDSA", "EDDSA"]
+    expires    : PassboltDateTimeType
 
 
 class PassboltUserTuple(NamedTuple):
@@ -85,45 +72,68 @@ class PassboltUserTuple(NamedTuple):
 
 
 class PassboltResourceTuple(NamedTuple):
-    id: PassboltResourceIdType
-    created: PassboltDateTimeType
-    created_by: PassboltUserIdType
-    deleted: bool
-    description: str
-    modified: PassboltDateTimeType
-    modified_by: PassboltUserIdType
-    name: str
-    uri: str
-    username: str
+    id              : PassboltResourceIdType
+    created         : PassboltDateTimeType
+    created_by      : PassboltUserIdType
+    deleted         : bool
+    description     : str
+    modified        : PassboltDateTimeType
+    modified_by     : PassboltUserIdType
+    name            : str
+    uri             : str
+    username        : str
     resource_type_id: PassboltResourceIdType
     folder_parent_id: PassboltFolderIdType
-    creator: Union[None, PassboltUserTuple] = None
-    favorite: Union[None, PassboltFavoriteDetailsType] = None
-    modifier: Union[None, PassboltUserTuple] = None
-    permission: Union[PassboltPermissionTuple] = None
+    creator         : Union[None, PassboltUserTuple]           = None
+    favorite        : Union[None, PassboltFavoriteDetailsType] = None
+    modifier        : Union[None, PassboltUserTuple]           = None
+    permission      : Union[PassboltPermissionTuple]           = None
 
 
 class PassboltResourceTypeTuple(NamedTuple):
     id: str
-    slug: str
-    name: str
-    description: str
-    definition: str
-    created: str
-    modified: str
+    created     :  str
+    definition  :  str
+    description :  str
+    modified    :  str
+    name        :  str
+    slug        :  str
+
+class PassboltAroTuple(NamedTuple):
+    id           :  str
+    deleted      :  bool
+    created      :  str
+    modified     :  str
+    groups_users :  str
+
+    # user aro
+    active   :  Optional[bool] = None
+    disabled :  Optional[bool] = None
+    gpgkey   :  Optional[PassboltOpenPgpKeyTuple] = None
+    role_id  :  Optional[str] = None
+    username :  Optional[str] = None
+    last_logged_in: Optional[str] = None
+    profile       : Optional[str] = None
+
+    # group aro
+    name          : Optional[str] = None
+    user_count    : Optional[int] = None
+    created_by    : Optional[str] = None
+    modified_by   : Optional[str] = None
 
 
 class PassboltFolderTuple(NamedTuple):
-    id: PassboltFolderIdType
-    name: str
-    created: PassboltDateTimeType
-    modified: PassboltDateTimeType
-    created_by: PassboltUserIdType
-    modified_by: PassboltUserIdType
-    folder_parent_id: PassboltFolderIdType
-    personal: bool
-    permissions: List[PassboltPermissionTuple] = []
-    children_resources: List[PassboltResourceTuple] = []
+    id                 :  PassboltFolderIdType
+    name               :  str
+    created            :  PassboltDateTimeType
+    modified           :  PassboltDateTimeType
+    created_by         :  PassboltUserIdType
+    modified_by        :  PassboltUserIdType
+    folder_parent_id   :  PassboltFolderIdType
+    personal           :  bool
+    permissions        :  List[PassboltPermissionTuple]  =  []
+    children_resources :  List[PassboltResourceTuple]    =  []
+    children_folders   :  List["PassboltFolderTuple"]    =  []
 
 
 class PassboltGroupTuple(NamedTuple):
@@ -145,6 +155,7 @@ AllPassboltTupleTypes = Union[
     PassboltGroupTuple,
     PassboltUserTuple,
     PassboltOpenPgpKeyTuple,
+    PassboltAroTuple,
 ]
 
 

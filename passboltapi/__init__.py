@@ -1,43 +1,7 @@
-import configparser
-from http.cookiejar import LWPCookieJar
-import json
-import logging
-import urllib.parse
-from typing import List, Mapping, Optional, Tuple, Union
+import configparser, json, gnupg, requests, uuid, datetime, jwt
+from typing import List, Optional
 
-import uuid
-import datetime
-import jwt
-import cryptography
-
-import gnupg
-import requests
-from urllib3.exceptions import HeaderParsingError
-
-from passboltapi.schema import (
-    AllPassboltTupleTypes,
-    PassboltDateTimeType,
-    PassboltFavoriteDetailsType,
-    PassboltFolderIdType,
-    PassboltFolderTuple,
-    PassboltGroupIdType,
-    PassboltGroupTuple,
-    PassboltOpenPgpKeyIdType,
-    PassboltOpenPgpKeyTuple,
-    PassboltPermissionIdType,
-    PassboltPermissionTuple,
-    PassboltResourceIdType,
-    PassboltResourceTuple,
-    PassboltResourceType,
-    PassboltResourceTypeIdType,
-    PassboltResourceTypeTuple,
-    PassboltRoleIdType,
-    PassboltSecretIdType,
-    PassboltSecretTuple,
-    PassboltUserIdType,
-    PassboltUserTuple,
-    tuple_constructor,
-)
+from passboltapi.schema import *
 
 JWT = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovLzEwLjIyMS4yMjEuMTA1OjI3NDQzLyIsInN1YiI6ImZlMGJhN2Q0LWRlYTctNDNhYy1hYzE1LWMzZDM1ZGEzMjMxYSIsImV4cCI6MTc0MDQzMjUwOH0.PkA5yvQD8gDx3R-fNWQgRDG2aVik70Wg1RY2GbYkPs5aXpGr8Dt2ahN1p2fi0AfIhosGWser1SHer0czvytp1qpVyql-e4pdosnxrqT7vLjRQvQfzn5keSIyNhB2upEUkYWRb6ogpd-du3aYOjSNBE1PxckDi14WGTmK1GMF5jpiPyae8dvg7CUTTrYCrszRlFknlNr2r5pOLbcWO-p-mui77oykCz2VmGHlSD2UCYsQopIjJZNmHel6LQeCzucI3rhv0QgUJ4ZKstrRS17xC9HQoiGlpLYI5s_lvMUeYUJlRn7PKcHwkDd1mplZodXmLAgHvCKzzBgUxh11D7J5Z8rEq24q9PFADwrwXydCpipSUW21JHomP4x3FgBlQ6JA9f4JqSc8RYe7ZOKPrGv4zq9um2ECs94ZUbQFZ4b3Sqs1UTmzaal14C_cSlRbzl2G1ngkuZ9YbJGZ_pw3WWi4TItATBAy6NqiM5KPaI4gZheBmt3QinBm9iC17y9A_AMBUGijpBIaDMOWfNzwvhB2zrrrJysuZI4c5hUJg8LCNV8NVmgPJflQJmHfgb3OSAjb9YhNyQErH5J_fChNfKXJeBrRJVJGwr8kHly7TWaQo8zIbi_k9pwRL2WN3MVGjpAlfjgDslhluk5LfL5oOStuGyE4xtSAoXJONRotiP7JNmc'
 
@@ -48,29 +12,24 @@ class PassboltSession(requests.Session):
 
     def _is_session_valid(self, auth_header: str):
         try:
-            # print(self.server_jwt_public_key)
+            #todo: implement session check and refresh
+            #todo: save server jwt public key
             #todo: add signature verification of the jwt
             decoded = jwt.decode(JWT, options={'verify_signature': False}, algorithms=['RS256'])
             # print(decoded)
-        except Exception as e:
-            raise e
+        except Exception as e: raise e
         return
 
     def request(self, method, *args, **kwargs):
-        # __import__('pprint').pprint(self.headers)
         if 'Authorization' in self.headers.keys():
             self._is_session_valid(str(self.headers['Authorization']))
-        else:
-            pass
-            # print('no auth')
-            # self._is_session_valid(self.headers['Authorization'])
-        # print('AUTH') if 'Authorization' in self.headers.keys() else print('No AUTH')
-        #check if the session is expired
         response = super().request(method, *args, **kwargs)
         return response
 
 
+
 class PassboltAPI():
+
     def __init__(
         self,
         config: Optional[str] = None,
@@ -86,7 +45,7 @@ class PassboltAPI():
         self.config = {}
 
         # ----------------------------------
-        # check config
+        # check config todo
         # ----------------------------------
         # the dictionary config has precedence over the config_path
         # ----------------------------------
@@ -101,7 +60,7 @@ class PassboltAPI():
             self.config = config
 
         # ----------------------------------
-        # read config
+        # read config todo
         # ----------------------------------
         self.server_url = self.config['server']
         self.user_fingerprint = self.config["user_fingerprint"].upper().replace(" ", "")
@@ -115,7 +74,7 @@ class PassboltAPI():
             raise Exception("GPG private key could not be found. Check: gpg --list-secret-keys")
 
         # ----------------------------------
-        # http session setup
+        # http session setup - todo
         # ----------------------------------
         self.http_session = PassboltSession()
         proxies = {
@@ -146,8 +105,10 @@ class PassboltAPI():
             raise requests.HTTPError(f"Unexpected passbolt response: {body}", response=response)
 
         if body['header']['status'] != 'success':
-            raise requests.HTTPError(f"Unexpected status code {response.status_code}", response=response)
+            raise requests.HTTPError(f"TODO", response=response)
 
+# ///////////////////////////////////////////////////////////////////////////////////
+#                            AUTHENTICATION (JWT)
 # ///////////////////////////////////////////////////////////////////////////////////
 
     def get_jwt_rsa_server_info(self):
@@ -158,26 +119,126 @@ class PassboltAPI():
         # print(self.http_session.server_jwt_public_key)
 
 # ///////////////////////////////////////////////////////////////////////////////////
+#                                 SECRET
+# ///////////////////////////////////////////////////////////////////////////////////
 
-    def get_resources(self) -> List[PassboltResourceTuple]:
+    def get_secret( self, resource_id: PassboltResourceIdType):
+        r = self.http_session.get(f"{self.server_url}/secrets/resource/{resource_id}.json")
+        self._check_passbolt_response(r)
+        secret = tuple_constructor( PassboltSecretTuple)(r.json()['body'])
+        return secret
+
+# ///////////////////////////////////////////////////////////////////////////////////
+#                                 RESOURCES
+# ///////////////////////////////////////////////////////////////////////////////////
+
+    def get_resources(
+        self,
+        with_secret: Optional[bool] = False,
+        with_resource_type: Optional[bool] = False,
+    ) -> List[PassboltResourceTuple]:
         params = {}
         r = self.http_session.get(f"{self.server_url}/resources.json", params=params)
         self._check_passbolt_response(r)
         resources = tuple_constructor(PassboltResourceTuple)(r.json()['body'])
         return resources
 
+    def create_resource(
+        self,
+        name,
+        password,
+        description,
+        resource_type_id,
+        username="",
+        uri="",
+        user_id="",
+        folder_parent_id="",
+        expired="",
+    ):
+        # todo: add checks based on the 'definition' field of the resource type for bot properties and secret
+
+        data = {
+            "password": password,
+            "description": description,
+        }
+        secrets = {
+            "data": str(
+                self.gpg.encrypt(
+                    json.dumps(data),
+                    self.gpg_fingerprint,
+                    sign=self.gpg_fingerprint,
+                    passphrase=self.gpg_passphrase,
+                    always_trust=True)
+                ),
+            # "user_id": "0a491630-958a-4254-becc-f6902d1404d0",
+            # "resource_id": "",
+        }
+        print(json.dumps(secrets))
+
+        payload = {
+            "resource_type_id": resource_type_id,
+            "secrets": [secrets],
+            "name": name,
+            "username": "admin@deafgod.xyz",
+            "uri": "https://example.com",
+        }
+
+        r = self.http_session.post(f"{self.server_url}/resources.json", json=payload)
+        self._check_passbolt_response(r)
+
+        created_resource = tuple_constructor(
+            PassboltResourceTuple,
+            subconstructors={
+                "permission": tuple_constructor(PassboltPermissionTuple),
+            }
+        )(r.json()['body'])
+
+        return created_resource
+
+# ///////////////////////////////////////////////////////////////////////////////////
+#                               RESOURCES TYPES
 # ///////////////////////////////////////////////////////////////////////////////////
 
-    def get_folders(
+    def get_resource_types(self) -> List[PassboltResourceTypeTuple]:
+        r = self.http_session.get(f"{self.server_url}/resource-types.json")
+        self._check_passbolt_response(r)
+        resource_types = tuple_constructor(PassboltResourceTypeTuple)(r.json()['body'])
+        return resource_types
+
+    def get_resource_type(self, resource_type_id):
+        return
+
+# ///////////////////////////////////////////////////////////////////////////////////
+#                                  FOLDERS
+# ///////////////////////////////////////////////////////////////////////////////////
+
+    def get_multiple_folders(
         self,
-        search_filter: Optional[str] = None,
-        include_children_resources: Optional[bool] = False,
+        has_id: str = '',
+        has_parent: str = '',
+        search: str = '',
+        include_children_resources: bool = False,
+        include_children_folders: bool = False,
+        include_creator: bool = False,
+        include_creator_profile: bool = False,
+        include_modifier: bool = False,
+        include_modifier_profile: bool = False,
+        include_permission: bool = False,
+        include_permissions: bool = False,
+        include_permissions_user_profile: bool = False,
+        include_permissions_group: bool = False,
     ) -> List[PassboltFolderTuple]:
+        '''
+        docs
+        '''
         params = {}
-        if search_filter:
-            params['filter[search]'] = search_filter
-        if include_children_resources:
-            params['contain[children_resources]'] = 1
+        if search: params['filter[search]'] = search
+        if include_children_resources: params['contain[children_resources]'] = 1
+        if include_children_folders: params['contain[children_folders]'] = 1
+        if include_creator: params['contain[creator]'] = 1
+        if include_creator_profile: params['contain[creator.profile]'] = 1
+        if include_modifier: params['contain[modifier]'] = 1
+        if include_modifier_profile: params['contain[modifier.profile]'] = 1
 
         r = self.http_session.get(f"{self.server_url}/folders.json", params=params)
         self._check_passbolt_response(r)
@@ -185,24 +246,95 @@ class PassboltAPI():
         folders = tuple_constructor(
             PassboltFolderTuple,
             subconstructors={
-                "children_resources": tuple_constructor(PassboltResourceTuple)
+                "children_resources": tuple_constructor(PassboltResourceTuple),
+                "children_folders": tuple_constructor(PassboltFolderTuple),
             }
         )(r.json()['body'])
 
         return folders
 
+    # def create_folder(self):
+
+    def get_folder(
+        self,
+        folder_id: PassboltFolderIdType,
+        has_id: str = '', #?
+        include_children_resources: bool = False,
+        include_children_folders: bool = False,
+        include_creator: bool = False,
+        include_creator_profile: bool = False,
+        include_modifier: bool = False,
+        include_modifier_profile: bool = False,
+        include_permission: bool = False,
+        include_permissions: bool = False,
+        include_permissions_user_profile: bool = False,
+        include_permissions_group: bool = False,
+    ) -> PassboltFolderTuple:
+        params = {}
+        if include_children_resources: params['contain[children_resources]'] = 1
+        if include_children_folders: params['contain[children_folders]'] = 1
+        if include_creator: params['contain[creator]'] = 1
+        if include_creator_profile: params['contain[creator.profile]'] = 1
+        if include_modifier: params['contain[modifier]'] = 1
+        if include_modifier_profile: params['contain[modifier.profile]'] = 1
+
+        r = self.http_session.get(f"{self.server_url}/folders/{folder_id}.json", params=params)
+        self._check_passbolt_response(r)
+
+
+        folder = tuple_constructor(
+            PassboltFolderTuple,
+            subconstructors={
+                "children_resources": tuple_constructor(PassboltResourceTuple),
+                "children_folders": tuple_constructor(PassboltFolderTuple),
+            }
+        )(r.json()['body'])
+
+        return folder
+
+    # def update_folder(self):
+    # def delete_folder(self):
+
+# ///////////////////////////////////////////////////////////////////////////////////
+#                                  SHARE
+# ///////////////////////////////////////////////////////////////////////////////////
+    def share_resource(
+        self,
+        resource_id: PassboltResourceIdType,
+    ):
+        return
+
+# ///////////////////////////////////////////////////////////////////////////////////
+#                                  USERS
 # ///////////////////////////////////////////////////////////////////////////////////
 
     def get_users(
         self,
-        is_admin: bool = False,
-        is_active: bool = False,
-    ):
+        include_last_logged_in: Optional[int] = None,
+        search: Optional[str] = None,
+        has_groups: Optional[List[PassboltGroupIdType]]    = None,
+        has_access: Optional[List[PassboltResourceIdType]] = None,
+        is_admin: Optional[bool]  = None,
+        is_active: Optional[bool] = None,
+    ) -> List[PassboltUserTuple]:
+        '''
+        Returns a list of used filtered with criteria based on the arguments provided
+
+        search: is set, search only for users based on the provided string
+        has_groups: list of group uuids - returns users belonging to the groups provided
+        has_access: list of res?
+        is_admin: if True, returns only administrators
+        is_active: if True, returns only active users
+        '''
         params = {}
-        if is_admin:
-            params['filter[is-admin]'] = True
-        if is_active:
-            params['filter[is-active]'] = True
+        # 5 contains todo:
+        if include_last_logged_in: params['contain[last_logged_in]'] = 1
+        # 5 filters
+        if search: params['filter[search]'] = search
+        if has_groups: params['filter[has-groups]'] = has_groups # todo test
+        if has_access: params['filter[has-access]'] = has_access # todo test
+        if is_admin: params['filter[is-admin]']   = True
+        if is_active: params['filter[is-active]'] = True
 
         r = self.http_session.get(f"{self.server_url}/users.json", params=params)
         self._check_passbolt_response(r)
@@ -217,12 +349,12 @@ class PassboltAPI():
         if isinstance(users, PassboltUserTuple): users = [users]
         return users
 
-# ///////////////////////////////////////////////////////////////////////////////////
+# -----------------------------------------------------------------------------------
 
     def get_admins(self):
         return self.get_users(is_admin=True)
 
-# ///////////////////////////////////////////////////////////////////////////////////
+# -----------------------------------------------------------------------------------
 
     def get_active_users(self):
         return self.get_users(is_active=True)
@@ -306,30 +438,27 @@ class PassboltAPI():
         print(r.content)
 
 
-    def get_aros(
+    def search_aros(
         self,
-        search_filter: Optional[str] = None,
-        include_group_users: Optional[bool] = False,
-        include_gpg_key: Optional[bool] = False,
-        include_role: Optional[bool] = False,
+        search_filter       : Optional[str]  = None,
+        include_group_users : Optional[bool] = False,
+        include_gpgkey      : Optional[bool] = False,
+        include_role        : Optional[bool] = False, # To implement
     ):
         params = {}
-        if search_filter: params['filter[search]'] = search_filter
-        if include_group_users: params['contain[groups_users]'] = 1
-        if include_gpg_key: params['contain[gpgkey]'] = 1
-        if include_role: params['contain[role]'] = 1
+        if search_filter       : params['filter[search]']        = search_filter
+        if include_group_users : params['contain[groups_users]'] = 1
+        if include_gpgkey      : params['contain[gpgkey]']       = 1
+        if include_role        : params['contain[role]']         = 1
 
         r = self.http_session.get(f"{self.server_url}/share/search-aros.json", params=params)
         self._check_passbolt_response(r)
-        __import__('pprint').pprint(r.json()['body'])
-        return
 
+        aros = tuple_constructor(
+            PassboltAroTuple,
+            subconstructors={
+                "gpgkey": tuple_constructor(PassboltOpenPgpKeyTuple)
+            }
+        )(r.json()['body'])
 
-
-# -----------------------------------------------------------------------------------
-    # todo: delete server and users keys
-    # todo: get users
-    # todo: get folders
-    # todo: list_folder
-    # todo: list_passwords
-    # todo: share password with a user
+        return aros

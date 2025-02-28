@@ -2,39 +2,70 @@ import passboltapi
 import urllib3
 
 if __name__ == '__main__':
-    # Disable warnings about not checking server SSL certificate
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    # passbolt_api_old = passboltapi.PassboltAPIOld(
-    #     config_path="config.ini",
-    #     new_keys=True,
-    #     ssl_verify=False # anche se ho specificato False, ho dovuto modificare il codice della libreria per non controllare i certificati ssl
-    # )
-    # passbolt_api_old.get_server_public_key()
-    # passbolt_api_old.authenticate()
-    # passbolt_api_old.list_users()
-
-    # config = {
-    #     "passbolt": {
-    #         "server": "https://10.221.221.105:27443",
-    #         "server_public_key_file": "/home/user/dev/d3af90d-github/passbolt-api-mine/data/server.pub",
-    #         "user_fingerprint": "0BC8 8428 5147 1ACA 6EFA ABC2 6FB8 4AB4 AB00 6CA9",
-    #     }
-    # }
-    #passbolt_api = passboltapi.PassboltAPI(config=config)
-
+    # setup passbolt api object
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning) # Disable warnings about not checking server SSL certificate
     passbolt_api = passboltapi.PassboltAPI(config_path="config.ini")
-    folders = passbolt_api.get_folders(include_children_resources=True, search_filter='2024')
-    # for f in folders:
-    #     for r in f.children_resources:
-    #         print(r.name)
 
-    #passbolt_api.get_users(is_admin=True, is_active=True)
+    # search for user to share the password with
+    user_to_search = 'email00@deafgod.xyz'
+    chosen_user = passbolt_api.get_users(search=user_to_search)[0]
 
-    resources = passbolt_api.get_resources()
-    passbolt_api.get_aros()
-    # for r in resources:
-    #     print(r.name)
-    #
-    # passbolt_api.get_jwt_rsa_server_info()
-    # __import__('pprint').pprint(resources)
+    # search in the specific folder
+    folder_name = 'folder_one'
+    chosen_folder = passbolt_api.get_multiple_folders(
+        search=folder_name,
+        include_children_resources=True,
+        include_children_folders=True,
+    )[0]
+
+    search_folders = [chosen_folder.id]
+    resources = []
+    while search_folders:
+        search_id = search_folders.pop()
+        print(f"[+] Processing: {search_id}")
+        f = passbolt_api.get_folder(
+            search_id,
+            include_children_folders=True,
+            include_children_resources=True
+        )
+        for cf in f.children_folders:
+            search_folders.append(cf.id)
+        for cr in f.children_resources:
+            resources.append(cr)
+        
+    # print([r.name for r in resources])
+
+    # define password to search
+    name = '2024 - Kaleyra - KAL-HNS-240011_7'
+    chosen_pass = next((r for r in resources if r.name == name), None)
+
+    if not chosen_pass:
+        print('pass not found')
+        # create the password and share it
+        pass
+    else:
+        print('pass found')
+        pass
+        # just share with the specified user
+
+    aros = passbolt_api.search_aros(
+        include_gpgkey=True,
+        include_group_users=True,
+    )
+    print(aros)
+
+    #passbolt_api.get_secret(pass_found.id)
+
+    # update resource
+
+    # new_pass = passbolt_api.create_resource(
+    #     name="again-name-00",
+    #     password="password",
+    #     description="from script",
+    #     resource_type_id=password_and_description_res_type.id,
+    # )
+
+    # Share resource
+
+    # resource_types = passbolt_api.get_resource_types()
+    # pass_desc_type = next((rt for rt in resource_types if rt.slug == 'password-and-description'), None)
