@@ -1,6 +1,4 @@
-cryptography
 pyjwt
-python-gnupg        >= 0.4.7
-requests            >= 2.26.0
-typing-extensions   >= 4.0.0
-urllib3             >= 1.25.3
+python-gnupg
+requests
+urllib3
